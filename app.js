@@ -22,12 +22,37 @@ app.post('/fetch', async (req, res) => {
     const { url } = req.body;
     
     if (!url) {
-      return res.status(400).json({ error: 'URL is required' });
+      return res.status(400).json({ success: false, error: 'URL is required' });
+    }
+
+    // Ensure URL has a protocol
+    let validUrl = url;
+    if (!url.startsWith('http://') && !url.startsWith('https://')) {
+      validUrl = 'https://' + url;
+    }
+
+    try {
+      new URL(validUrl);
+    } catch (error) {
+      console.error('Failed to fetch URL:', url, 'Invalid URL');
+      return res.status(400).json({ success: false, error: 'Invalid URL' });
     }
 
     // Fetch the content from the provided URL
-    const response = await axios.get(url);
-    const html = response.data;
+    let html;
+    try {
+      const response = await axios.get(validUrl, {
+        headers: {
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+          'User-Agent': 'Mozilla/5.0 Faleproxy/1.0'
+        }
+      });
+      html = response.data;
+      console.log('Successfully fetched URL:', validUrl);
+    } catch (error) {
+      console.error('Failed to fetch URL:', url, error.message);
+      throw error;
+    }
 
     // Use cheerio to parse HTML and selectively replace text content, not URLs
     const $ = cheerio.load(html);
