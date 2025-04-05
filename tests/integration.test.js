@@ -18,7 +18,13 @@ describe('Integration Tests', () => {
     
     // Create a temporary test app file
     await execAsync('cp app.js app.test.js');
-    await execAsync(`sed -i '' 's/const PORT = 3001/const PORT = ${TEST_PORT}/' app.test.js`);
+    
+    // Use different sed syntax based on OS
+    const isMac = process.platform === 'darwin';
+    const sedCommand = isMac
+      ? `sed -i '' 's/const PORT = 3001/const PORT = ${TEST_PORT}/' app.test.js`
+      : `sed -i 's/const PORT = 3001/const PORT = ${TEST_PORT}/' app.test.js`;
+    await execAsync(sedCommand);
     
     // Start the test server
     server = require('child_process').spawn('node', ['app.test.js'], {
@@ -50,15 +56,18 @@ describe('Integration Tests', () => {
   });
 
   test('Should replace Yale with Fale in fetched content', async () => {
-    // Ensure nock intercepts all requests except localhost
-    nock.disableNetConnect();
-    nock.enableNetConnect(/localhost|127.0.0.1/);
-
     // Mock the response from example.com
     const mockHtml = '<html><head><title>Yale University Test Page</title></head><body><h1>Welcome to Yale University</h1><p>Yale University is a private Ivy League research university.</p><a href="https://yale.edu/about">About Yale</a></body></html>';
     
+    // Reset nock and set up mocks
+    nock.cleanAll();
+    nock.disableNetConnect();
+    nock.enableNetConnect(/localhost|127.0.0.1/);
+
+    // Mock example.com with any path
     nock('https://example.com')
-      .get('/')
+      .persist()
+      .get(/.*/) // Match any path
       .reply(200, mockHtml);
 
     // Make a request to our proxy app
