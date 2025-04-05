@@ -67,24 +67,28 @@ describe('Integration Tests', () => {
   test('Should replace Yale with Fale in fetched content', async () => {
     // Start test server
     const testServer = require('./test-server');
-    await new Promise(resolve => setTimeout(resolve, 1000)); // Wait for server to start
+    await testServer.start();
 
-    // Make a request to our proxy app
-    const response = await axios.post(`http://localhost:${TEST_PORT}/fetch`, {
-      url: 'http://localhost:3098'
-    });
+    try {
+      // Make a request to our proxy app
+      const response = await axios.post(`http://localhost:${TEST_PORT}/fetch`, {
+        url: 'http://localhost:3098'
+      });
 
-    // Debug output
-    console.log('Response data:', response.data);
-    
-    expect(response.status).toBe(200);
-    expect(response.data.success).toBe(true);
-    
-    // Verify Yale has been replaced with Fale in text
-    const $ = cheerio.load(response.data.content);
-    expect($('title').text().trim()).toBe('Fale Test Page');
-    expect($('h1').text().trim()).toBe('Fale Test');
-    expect($('p').text().trim()).toBe('This is a test page about Fale.');
+      // Debug output
+      console.log('Response data:', response.data);
+      
+      expect(response.status).toBe(200);
+      expect(response.data.success).toBe(true);
+      
+      // Verify Yale has been replaced with Fale in text
+      const $ = cheerio.load(response.data.content);
+      expect($('title').text().trim()).toBe('Fale Test Page');
+      expect($('h1').text().trim()).toBe('Fale Test');
+      expect($('p').text().trim()).toBe('This is a test page about Fale.');
+    } finally {
+      await testServer.stop();
+    }
   }, 10000); // Increase timeout for this test
 
   test('Should handle invalid URLs', async () => {

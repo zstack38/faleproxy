@@ -51,7 +51,7 @@ app.post('/fetch', async (req, res) => {
       console.log('Successfully fetched URL:', validUrl);
     } catch (error) {
       console.error('Failed to fetch URL:', url, error.message);
-      throw error;
+      return res.status(500).json({ success: false, error: `Failed to fetch content: ${error.message}` });
     }
 
     // Use cheerio to parse HTML and selectively replace text content, not URLs
@@ -92,13 +92,14 @@ app.post('/fetch', async (req, res) => {
     $('*').contents().each(processTextNodes);
     
     // Process title separately to ensure it's captured
-    const title = $('title').text();
-    $('title').text(replaceYaleWithFale(title));
+    const originalTitle = $('title').text();
+    const modifiedTitle = replaceYaleWithFale(originalTitle);
+    $('title').text(modifiedTitle);
     
     return res.json({ 
       success: true, 
       content: $.html(),
-      title: title,
+      title: modifiedTitle,
       originalUrl: url
     });
   } catch (error) {
