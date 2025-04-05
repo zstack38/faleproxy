@@ -65,15 +65,24 @@ describe('Integration Tests', () => {
     nock.enableNetConnect(/localhost|127.0.0.1/);
 
     // Mock example.com with any path
-    nock('https://example.com')
-      .persist()
-      .get(/.*/) // Match any path
+    nock.cleanAll();
+    const mockServer = nock('https://example.com')
+      .get('/')
+      .times(Infinity)
       .reply(200, mockHtml);
+
+    // Ensure mock is ready
+    expect(mockServer.isDone()).toBe(false); // Should be false as request hasn't been made yet
 
     // Make a request to our proxy app
     const response = await axios.post(`http://localhost:${TEST_PORT}/fetch`, {
       url: 'https://example.com'
     });
+
+    // Debug output
+    console.log('Mock was used:', mockServer.isDone());
+    console.log('Response data:', response.data);
+    console.log('HTML content:', response.data.content);
     
     expect(response.status).toBe(200);
     expect(response.data.success).toBe(true);
