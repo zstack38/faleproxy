@@ -13,9 +13,8 @@ let server;
 describe('Integration Tests', () => {
   // Modify the app to use a test port
   beforeAll(async () => {
-    // Mock external HTTP requests
-    nock.disableNetConnect();
-    nock.enableNetConnect('127.0.0.1');
+    // Allow localhost connections
+    nock.enableNetConnect(/localhost|127.0.0.1/);
     
     // Create a temporary test app file
     await execAsync('cp app.js app.test.js');
@@ -23,18 +22,27 @@ describe('Integration Tests', () => {
     
     // Start the test server
     server = require('child_process').spawn('node', ['app.test.js'], {
-      detached: true,
-      stdio: 'ignore'
+      stdio: 'pipe'
     });
     
-    // Give the server time to start
-    await new Promise(resolve => setTimeout(resolve, 2000));
+    // Wait for server to start
+    await new Promise((resolve) => {
+      server.stdout.on('data', (data) => {
+        if (data.toString().includes('Faleproxy server running')) {
+          resolve();
+        }
+      });
+    });
+    
+    // Give the server a moment to fully initialize
+    await new Promise(resolve => setTimeout(resolve, 1000));
   }, 10000); // Increase timeout for server startup
 
   afterAll(async () => {
     // Kill the test server and clean up
-    if (server && server.pid) {
-      process.kill(-server.pid);
+    if (server) {
+      server.kill();
+      await new Promise(resolve => server.on('exit', resolve));
     }
     await execAsync('rm app.test.js');
     nock.cleanAll();
@@ -42,14 +50,20 @@ describe('Integration Tests', () => {
   });
 
   test('Should replace Yale with Fale in fetched content', async () => {
-    // Setup mock for example.com
+    // Ensure nock intercepts all requests except localhost
+    nock.disableNetConnect();
+    nock.enableNetConnect(/localhost|127.0.0.1/);
+
+    // Mock the response from example.com
+    const mockHtml = '<html><head><title>Yale University Test Page</title></head><body><h1>Welcome to Yale University</h1><p>Yale University is a private Ivy League research university.</p><a href="https://yale.edu/about">About Yale</a></body></html>';
+    
     nock('https://example.com')
       .get('/')
-      .reply(200, sampleHtmlWithYale);
-    
+      .reply(200, mockHtml);
+
     // Make a request to our proxy app
     const response = await axios.post(`http://localhost:${TEST_PORT}/fetch`, {
-      url: 'https://example.com/'
+      url: 'https://example.com'
     });
     
     expect(response.status).toBe(200);
@@ -59,7 +73,7 @@ describe('Integration Tests', () => {
     const $ = cheerio.load(response.data.content);
     expect($('title').text()).toBe('Fale University Test Page');
     expect($('h1').text()).toBe('Welcome to Fale University');
-    expect($('p').first().text()).toContain('Fale University is a private');
+    expect($('p').text()).toContain('Fale University is a private');
     
     // Verify URLs remain unchanged
     const links = $('a');
@@ -73,7 +87,7 @@ describe('Integration Tests', () => {
     expect(hasYaleUrl).toBe(true);
     
     // Verify link text is changed
-    expect($('a').first().text()).toBe('About Fale');
+    expect($('a').text()).toBe('About Fale');
   }, 10000); // Increase timeout for this test
 
   test('Should handle invalid URLs', async () => {
@@ -82,9 +96,10 @@ describe('Integration Tests', () => {
         url: 'not-a-valid-url'
       });
       // Should not reach here
-      expect(true).toBe(false);
+      fail('Expected request to fail');
     } catch (error) {
       expect(error.response.status).toBe(500);
+      expect(error.response.data.error).toBe('Failed to fetch content: Invalid URL');
     }
   });
 
@@ -92,7 +107,7 @@ describe('Integration Tests', () => {
     try {
       await axios.post(`http://localhost:${TEST_PORT}/fetch`, {});
       // Should not reach here
-      expect(true).toBe(false);
+      fail('Expected request to fail');
     } catch (error) {
       expect(error.response.status).toBe(400);
       expect(error.response.data.error).toBe('URL is required');

@@ -32,36 +32,43 @@ app.post('/fetch', async (req, res) => {
     // Use cheerio to parse HTML and selectively replace text content, not URLs
     const $ = cheerio.load(html);
     
-    // Function to replace text but skip URLs and attributes
-    function replaceYaleWithFale(i, el) {
-      if ($(el).children().length === 0 || $(el).text().trim() !== '') {
-        // Get the HTML content of the element
-        let content = $(el).html();
-        
-        // Only process if it's a text node
-        if (content && $(el).children().length === 0) {
-          // Replace Yale with Fale in text content only
-          content = content.replace(/Yale/g, 'Fale').replace(/yale/g, 'fale');
-          $(el).html(content);
+    // Function to replace Yale with Fale while preserving case
+    function replaceYaleWithFale(text) {
+      if (!text) return text;
+      // Only replace if Yale is found as a complete word
+      const matches = text.match(/\b(YALE|Yale|yale)\b/g);
+      if (!matches) return text;
+      
+      // Process each match in order
+      let result = text;
+      matches.forEach(match => {
+        if (match === 'YALE') {
+          result = result.replace(new RegExp(`\\b${match}\\b`, 'g'), 'FALE');
+        } else if (match === 'Yale') {
+          result = result.replace(new RegExp(`\\b${match}\\b`, 'g'), 'Fale');
+        } else if (match === 'yale') {
+          result = result.replace(new RegExp(`\\b${match}\\b`, 'g'), 'fale');
+        }
+      });
+      return result;
+    }
+
+    // Process text nodes
+    function processTextNodes(i, el) {
+      if (el.nodeType === 3) { // Text node
+        const newText = replaceYaleWithFale(el.data);
+        if (newText !== el.data) {
+          $(el).replaceWith(newText);
         }
       }
     }
     
-    // Process text nodes in the body
-    $('body *').contents().filter(function() {
-      return this.nodeType === 3; // Text nodes only
-    }).each(function() {
-      // Replace text content but not in URLs or attributes
-      const text = $(this).text();
-      const newText = text.replace(/Yale/g, 'Fale').replace(/yale/g, 'fale');
-      if (text !== newText) {
-        $(this).replaceWith(newText);
-      }
-    });
+    // Process all text nodes in the document
+    $('*').contents().each(processTextNodes);
     
-    // Process title separately
-    const title = $('title').text().replace(/Yale/g, 'Fale').replace(/yale/g, 'fale');
-    $('title').text(title);
+    // Process title separately to ensure it's captured
+    const title = $('title').text();
+    $('title').text(replaceYaleWithFale(title));
     
     return res.json({ 
       success: true, 
