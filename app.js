@@ -4,7 +4,7 @@ const cheerio = require('cheerio');
 const path = require('path');
 
 const app = express();
-const PORT = 3001;
+const PORT = process.env.PORT || 3001;
 
 // Middleware to parse request bodies
 app.use(express.json());
@@ -77,7 +77,12 @@ app.post('/fetch', async (req, res) => {
   }
 });
 
-// Start the server
-app.listen(PORT, () => {
-  console.log(`Faleproxy server running at http://localhost:${PORT}`);
-});
+// Only start the server if this file is run directly (not imported as a module)
+if (require.main === module) {
+  app.listen(PORT, () => {
+    console.log(`Faleproxy server running at http://localhost:${PORT}`);
+  });
+}
+
+// Export the app for testing
+module.exports = app;

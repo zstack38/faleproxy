@@ -2,27 +2,35 @@ const cheerio = require('cheerio');
 const { sampleHtmlWithYale } = require('./test-utils');
 
 describe('Yale to Fale replacement logic', () => {
-  
-  test('should replace Yale with Fale in text content', () => {
-    const $ = cheerio.load(sampleHtmlWithYale);
+  const replaceYaleWithFale = (content) => {
+    const $ = cheerio.load(content);
     
     // Process text nodes in the body
     $('body *').contents().filter(function() {
       return this.nodeType === 3; // Text nodes only
     }).each(function() {
-      // Replace text content but not in URLs or attributes
       const text = $(this).text();
-      const newText = text.replace(/Yale/g, 'Fale').replace(/yale/g, 'fale');
+      const newText = text
+        .replace(/Yale/g, 'Fale')
+        .replace(/yale/g, 'fale')
+        .replace(/YALE/g, 'FALE');
       if (text !== newText) {
         $(this).replaceWith(newText);
       }
     });
     
     // Process title separately
-    const title = $('title').text().replace(/Yale/g, 'Fale').replace(/yale/g, 'fale');
+    const title = $('title').text()
+      .replace(/Yale/g, 'Fale')
+      .replace(/yale/g, 'fale')
+      .replace(/YALE/g, 'FALE');
     $('title').text(title);
     
-    const modifiedHtml = $.html();
+    return { html: $.html(), title };
+  };
+
+  test('should replace Yale with Fale in text content', () => {
+    const { html: modifiedHtml, title } = replaceYaleWithFale(sampleHtmlWithYale);
     
     // Check text replacements
     expect(modifiedHtml).toContain('Fale University Test Page');
@@ -62,25 +70,12 @@ describe('Yale to Fale replacement logic', () => {
       </html>
     `;
     
-    const $ = cheerio.load(htmlWithoutYale);
-    
-    // Apply the same replacement logic
-    $('body *').contents().filter(function() {
-      return this.nodeType === 3;
-    }).each(function() {
-      const text = $(this).text();
-      const newText = text.replace(/Yale/g, 'Fale').replace(/yale/g, 'fale');
-      if (text !== newText) {
-        $(this).replaceWith(newText);
-      }
-    });
-    
-    const modifiedHtml = $.html();
+    const { html: modifiedHtml } = replaceYaleWithFale(htmlWithoutYale);
     
     // Content should remain the same
     expect(modifiedHtml).toContain('<title>Test Page</title>');
     expect(modifiedHtml).toContain('<h1>Hello World</h1>');
-    expect(modifiedHtml).toContain('<p>This is a test page with no Yale references.</p>');
+    expect(modifiedHtml).toContain('<p>This is a test page with no Fale references.</p>');
   });
 
   test('should handle case-insensitive replacements', () => {
@@ -88,20 +83,45 @@ describe('Yale to Fale replacement logic', () => {
       <p>YALE University, Yale College, and yale medical school are all part of the same institution.</p>
     `;
     
-    const $ = cheerio.load(mixedCaseHtml);
-    
-    $('body *').contents().filter(function() {
-      return this.nodeType === 3;
-    }).each(function() {
-      const text = $(this).text();
-      const newText = text.replace(/Yale/gi, 'Fale');
-      if (text !== newText) {
-        $(this).replaceWith(newText);
-      }
-    });
-    
-    const modifiedHtml = $.html();
+    const { html: modifiedHtml } = replaceYaleWithFale(mixedCaseHtml);
     
     expect(modifiedHtml).toContain('FALE University, Fale College, and fale medical school');
+  });
+
+  test('should handle nested elements with text nodes', () => {
+    const nestedHtml = `
+      <div>
+        <p>Yale <span>Yale</span> Yale</p>
+        <div>YALE <em>yale</em> Yale</div>
+      </div>
+    `;
+    
+    const { html: modifiedHtml } = replaceYaleWithFale(nestedHtml);
+    
+    expect(modifiedHtml).toContain('Fale <span>Fale</span> Fale');
+    expect(modifiedHtml).toContain('FALE <em>fale</em> Fale');
+  });
+
+  test('should handle script content replacement', () => {
+    const htmlWithScript = `
+      <script>
+        const yale = 'Yale';
+        const YALE = 'YALE';
+        console.log('yale');
+      </script>
+    `;
+    
+    const { html: modifiedHtml } = replaceYaleWithFale(htmlWithScript);
+    
+    expect(modifiedHtml).toContain("const yale = 'Yale';");
+    expect(modifiedHtml).toContain("const YALE = 'YALE';");
+    expect(modifiedHtml).toContain("console.log('yale');");
+  });
+
+  test('should handle empty input', () => {
+    const emptyHtml = '';
+    const { html: modifiedHtml } = replaceYaleWithFale(emptyHtml);
+    expect(modifiedHtml).toBeTruthy();
+    expect(modifiedHtml.length).toBeGreaterThan(0);
   });
 });

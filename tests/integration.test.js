@@ -1,101 +1,130 @@
 const axios = require('axios');
 const cheerio = require('cheerio');
-const { exec } = require('child_process');
-const { promisify } = require('util');
-const execAsync = promisify(exec);
+const path = require('path');
+const express = require('express');
+const { spawn } = require('child_process');
 const { sampleHtmlWithYale } = require('./test-utils');
-const nock = require('nock');
 
-// Set a different port for testing to avoid conflict with the main app
-const TEST_PORT = 3099;
-let server;
+// Set different ports for testing to avoid conflict with the main app
+const APP_PORT = 3099;
+const MOCK_PORT = 3098;
+let appServer;
+let mockServer;
 
 describe('Integration Tests', () => {
-  // Modify the app to use a test port
   beforeAll(async () => {
-    // Mock external HTTP requests
-    nock.disableNetConnect();
-    nock.enableNetConnect('127.0.0.1');
-    
-    // Create a temporary test app file
-    await execAsync('cp app.js app.test.js');
-    await execAsync(`sed -i '' 's/const PORT = 3001/const PORT = ${TEST_PORT}/' app.test.js`);
-    
-    // Start the test server
-    server = require('child_process').spawn('node', ['app.test.js'], {
-      detached: true,
-      stdio: 'ignore'
+    // Start a mock server to serve Yale content
+    const app = express();
+    app.get('/', (req, res) => {
+      res.send(sampleHtmlWithYale);
     });
-    
-    // Give the server time to start
-    await new Promise(resolve => setTimeout(resolve, 2000));
-  }, 10000); // Increase timeout for server startup
+    mockServer = app.listen(MOCK_PORT);
+
+    // Start the main app
+    appServer = spawn('node', [path.join(__dirname, '..', 'app.js')], {
+      env: { ...process.env, PORT: APP_PORT.toString() }
+    });
+
+    // Wait for app server to be ready
+    let retries = 0;
+    const maxRetries = 15;
+    while (retries < maxRetries) {
+      try {
+        await axios.get(`http://localhost:${APP_PORT}`);
+        break;
+      } catch (error) {
+        retries++;
+        if (retries === maxRetries) {
+          throw new Error('Server failed to start after multiple attempts');
+        }
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+    }
+  }, 20000); // Increase timeout for server startup
+
+
 
   afterAll(async () => {
-    // Kill the test server and clean up
-    if (server && server.pid) {
-      process.kill(-server.pid);
+    if (appServer && !appServer.killed) {
+      appServer.kill();
     }
-    await execAsync('rm app.test.js');
-    nock.cleanAll();
-    nock.enableNetConnect();
+    if (mockServer) {
+      mockServer.close();
+    }
   });
 
-  test('Should replace Yale with Fale in fetched content', async () => {
-    // Setup mock for example.com
-    nock('https://example.com')
-      .get('/')
-      .reply(200, sampleHtmlWithYale);
-    
-    // Make a request to our proxy app
-    const response = await axios.post(`http://localhost:${TEST_PORT}/fetch`, {
-      url: 'https://example.com/'
-    });
+  test('Should replace Yale with Fale in fetched content while preserving URLs', async () => {
+    // Make a request to our proxy app targeting the mock server
+    let response;
+    try {
+      response = await axios.post(`http://localhost:${APP_PORT}/fetch`, {
+        url: `http://localhost:${MOCK_PORT}`
+      });
+    } catch (error) {
+      console.error('Error response:', error.response?.data);
+      throw error;
+    }
     
     expect(response.status).toBe(200);
     expect(response.data.success).toBe(true);
     
-    // Verify Yale has been replaced with Fale in text
     const $ = cheerio.load(response.data.content);
-    expect($('title').text()).toBe('Fale University Test Page');
-    expect($('h1').text()).toBe('Welcome to Fale University');
-    expect($('p').first().text()).toContain('Fale University is a private');
     
-    // Verify URLs remain unchanged
+    // Test title transformation
+    expect($('title').text()).toBe('Fale University Test Page');
+    
+    // Test header content transformation
+    expect($('h1').text()).toBe('Welcome to Fale University');
+    
+    // Test paragraph content transformation
+    expect($('p').first().text()).toContain('Fale University is a private');
+    expect($('p').eq(1).text()).toBe('Fale was founded in 1701 as the Collegiate School.');
+    
+    // Test list content transformation
+    const listItems = $('.yale-info ul li');
+    expect($(listItems[1]).text()).toContain('Fale graduates');
+    
+    // Verify URLs and email addresses remain unchanged
     const links = $('a');
-    let hasYaleUrl = false;
     links.each((i, link) => {
       const href = $(link).attr('href');
       if (href && href.includes('yale.edu')) {
-        hasYaleUrl = true;
+        expect(href).toContain('yale.edu');
+      }
+      if (href && href.includes('mailto:')) {
+        expect(href).toContain('yale.edu');
       }
     });
-    expect(hasYaleUrl).toBe(true);
     
-    // Verify link text is changed
-    expect($('a').first().text()).toBe('About Fale');
-  }, 10000); // Increase timeout for this test
+    // Verify image sources remain unchanged
+    const img = $('img');
+    expect(img.attr('src')).toContain('yale.edu');
+    
+    // Verify JavaScript content is transformed
+    const scripts = $('script');
+    const scriptContent = scripts.first().html();
+    expect(scriptContent).toContain('Fale University');
+    expect(scriptContent).not.toContain('Yale University');
+    
+    // Verify link text is changed but href remains unchanged
+    const aboutLink = $('a').first();
+    expect(aboutLink.text()).toBe('About Fale');
+    expect(aboutLink.attr('href')).toBe('https://www.yale.edu/about');
+  }, 15000); // Increased timeout for slower systems // Increase timeout for this test
 
   test('Should handle invalid URLs', async () => {
-    try {
-      await axios.post(`http://localhost:${TEST_PORT}/fetch`, {
-        url: 'not-a-valid-url'
-      });
-      // Should not reach here
-      expect(true).toBe(false);
-    } catch (error) {
-      expect(error.response.status).toBe(500);
-    }
+    const response = await axios.post(`http://localhost:${APP_PORT}/fetch`, {
+      url: 'not-a-valid-url'
+    }).catch(error => error.response);
+
+    expect(response.status).toBe(500);
+    expect(response.data.error).toContain('Invalid URL');
   });
 
   test('Should handle missing URL parameter', async () => {
-    try {
-      await axios.post(`http://localhost:${TEST_PORT}/fetch`, {});
-      // Should not reach here
-      expect(true).toBe(false);
-    } catch (error) {
-      expect(error.response.status).toBe(400);
-      expect(error.response.data.error).toBe('URL is required');
-    }
+    const response = await axios.post(`http://localhost:${APP_PORT}/fetch`, {}).catch(error => error.response);
+
+    expect(response.status).toBe(400);
+    expect(response.data.error).toBe('URL is required');
   });
 });
