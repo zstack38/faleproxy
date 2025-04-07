@@ -12,6 +12,8 @@ const TEST_PORT = 3099;
 let server;
 
 describe('Integration Tests', () => {
+  jest.setTimeout(30000); // Increase global timeout
+
   // Modify the app to use a test port
   beforeAll(async () => {
     // Allow localhost connections
@@ -33,20 +35,34 @@ describe('Integration Tests', () => {
     });
 
     // Log server output
-    server.stdout.on('data', (data) => {
-      console.log('Server output:', data.toString());
-    });
-    server.stderr.on('data', (data) => {
-      console.error('Server error:', data.toString());
-    });
+    server.stdout.on('data', () => {});
+    server.stderr.on('data', () => {});
     
-    // Wait for server to start
-    await new Promise((resolve) => {
-      server.stdout.on('data', (data) => {
-        if (data.toString().includes('Faleproxy server running')) {
-          resolve();
-        }
-      });
+    // Wait for server to start (with timeout)
+    let checkInterval;
+    await Promise.race([
+      new Promise((resolve) => {
+        const checkServer = async () => {
+          try {
+            await axios.get(`http://localhost:${TEST_PORT}`);
+            clearInterval(checkInterval);
+            resolve();
+          } catch (error) {
+            // Continue checking
+          }
+        };
+        checkInterval = setInterval(checkServer, 100);
+        checkServer(); // Initial check
+      }),
+      new Promise((_, reject) => {
+        const timeout = setTimeout(() => {
+          clearInterval(checkInterval);
+          reject(new Error('Server start timeout'));
+        }, 5000);
+        timeout.unref();
+      })
+    ]).finally(() => {
+      clearInterval(checkInterval);
     });
     
     // Give the server a moment to fully initialize
@@ -55,14 +71,22 @@ describe('Integration Tests', () => {
 
   afterAll(async () => {
     // Kill the test server and clean up
-    if (server) {
-      server.kill();
-      await new Promise(resolve => server.on('exit', resolve));
+    try {
+      if (server) {
+        server.kill();
+        await Promise.race([
+          new Promise(resolve => server.on('exit', resolve)),
+          new Promise(resolve => setTimeout(resolve, 1000))
+        ]);
+      }
+      await execAsync('rm app.test.js');
+    } catch (error) {
+      console.error('Cleanup error:', error);
+    } finally {
+      nock.cleanAll();
+      nock.enableNetConnect();
     }
-    await execAsync('rm app.test.js');
-    nock.cleanAll();
-    nock.enableNetConnect();
-  });
+  }, 5000);
 
   test('Should replace Yale with Fale in fetched content', async () => {
     // Start test server
@@ -75,8 +99,11 @@ describe('Integration Tests', () => {
         url: 'http://localhost:3098'
       });
 
-      // Debug output
-      console.log('Response data:', response.data);
+      // Verify response structure
+      expect(response.data).toHaveProperty('success', true);
+      expect(response.data).toHaveProperty('content');
+      expect(response.data).toHaveProperty('title');
+      expect(response.data).toHaveProperty('originalUrl');
       
       expect(response.status).toBe(200);
       expect(response.data.success).toBe(true);

@@ -34,7 +34,7 @@ app.post('/fetch', async (req, res) => {
     try {
       new URL(validUrl);
     } catch (error) {
-      console.error('Failed to fetch URL:', url, 'Invalid URL');
+      // Invalid URL detected
       return res.status(400).json({ success: false, error: 'Invalid URL' });
     }
 
@@ -48,9 +48,9 @@ app.post('/fetch', async (req, res) => {
         }
       });
       html = response.data;
-      console.log('Successfully fetched URL:', validUrl);
+      // Successfully fetched URL
     } catch (error) {
-      console.error('Failed to fetch URL:', url, error.message);
+      // Failed to fetch URL
       return res.status(500).json({ success: false, error: `Failed to fetch content: ${error.message}` });
     }
 
@@ -112,5 +112,5 @@ app.post('/fetch', async (req, res) => {
 
 // Start the server
 app.listen(PORT, () => {
-  console.log(`Faleproxy server running at http://localhost:${PORT}`);
+  // Server started
 });
